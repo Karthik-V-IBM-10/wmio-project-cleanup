@@ -91,6 +91,11 @@
     "SIQA_Messaging_Assets",
     "SIQA_B2B_Automation",
     "SIQA_Customer_SIs",
-    "Automation_WAI_API"
+    "Automation_WAI_API",
+    "OriginPerformanceTests",
+    "E2ePerformanceTest",
+    "e2ePerformanceTests",
+    "PerformanceTests",
+    "DesignTimePerformance"
   ]
 }
