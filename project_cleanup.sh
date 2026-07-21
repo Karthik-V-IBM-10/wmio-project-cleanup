@@ -169,9 +169,15 @@ log_error() {
 #              GET <url>/enterprise/v1/user/token
 ################################################################################
 fetch_mcsp_tokens() {
-    if [ -n "$MCSP_AUTHTOKEN" ]; then
+    local force="${1:-}"
+    if [ -n "$MCSP_AUTHTOKEN" ] && [ "$force" != "force" ]; then
         return 0  # already fetched
     fi
+
+    # Clear cached tokens before re-fetching
+    MCSP_AUTHTOKEN=""
+    MCSP_COOKIE=""
+    MCSP_CSRF=""
 
     local token_url="${WMIO_TENANT_URL}/enterprise/v1/user/token"
 
@@ -360,6 +366,21 @@ get_all_projects() {
 #   $3 - Project Name (for logging)
 # Returns: 0 on success, 1 on failure
 ################################################################################
+# Helper: performs the ownership PUT and echoes "<http_code>\n<body>"
+_do_ownership_request() {
+    local url="$1"
+    local project_id="$2"
+    local payload="$3"
+    curl -s -w "\n%{http_code}" -X PUT \
+        -H "Content-Type: application/json" \
+        -H "authtoken: ${MCSP_AUTHTOKEN}" \
+        -H "x-csrf-token: ${MCSP_CSRF}" \
+        -H "Cookie: ${MCSP_COOKIE}" \
+        -d "$payload" \
+        --max-time "$REQUEST_TIMEOUT" \
+        "${url}/enterprise/v1/projects/${project_id}/ownership"
+}
+
 transfer_project_ownership() {
     local url="$1"
     local project_id="$2"
@@ -374,20 +395,19 @@ transfer_project_ownership() {
     payload=$(jq -n --arg user "$WMIO_USERNAME" \
         '{"keepPreviousOwnerAsCollaborator": false, "username": $user}')
 
-    local response
-    response=$(curl -s -w "\n%{http_code}" -X PUT \
-        -H "Content-Type: application/json" \
-        -H "authtoken: ${MCSP_AUTHTOKEN}" \
-        -H "x-csrf-token: ${MCSP_CSRF}" \
-        -H "Cookie: ${MCSP_COOKIE}" \
-        -d "$payload" \
-        --max-time "$REQUEST_TIMEOUT" \
-        "${url}/enterprise/v1/projects/${project_id}/ownership")
-
-    local http_code
+    local response http_code body
+    response=$(_do_ownership_request "$url" "$project_id" "$payload")
     http_code=$(echo "$response" | tail -n1)
-    local body
     body=$(echo "$response" | sed '$d')
+
+    # On 401, tokens have expired — refresh once and retry
+    if [ "$http_code" = "401" ]; then
+        log_warning "Ownership transfer got 401 for: $project_name — refreshing tokens and retrying"
+        fetch_mcsp_tokens force
+        response=$(_do_ownership_request "$url" "$project_id" "$payload")
+        http_code=$(echo "$response" | tail -n1)
+        body=$(echo "$response" | sed '$d')
+    fi
 
     if [ "$http_code" = "200" ] || [ "$http_code" = "204" ]; then
         log_success "Ownership transferred successfully for project: $project_name"
