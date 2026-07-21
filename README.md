@@ -11,7 +11,7 @@ This standalone shell script automates the cleanup of projects in webMethods.io 
 - ✅ **Detailed Logging**: Color-coded output with comprehensive status reporting
 - ✅ **Error Handling**: Tracks and reports projects that couldn't be deleted
 - ✅ **Configurable Timeout**: Adjustable request timeout for large operations
-- ✅ **Standalone**: No framework dependencies required
+- ✅ **Standalone**: No framework dependencies required (Legacy: [Legacy Code](https://github.com/ibm-webmethods/siqa-cloud-automation/blob/yada_ProjectCleanup/src/test/resources/Features/ProjectCleanup/ProjectCleanup.feature))
 
 ## Prerequisites
 
