@@ -37,6 +37,11 @@ REQUEST_TIMEOUT="${REQUEST_TIMEOUT:-180}"  # 3 minutes in seconds
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXCEPTION_LIST_DIR="${SCRIPT_DIR}/exception_lists"
 
+# MCSP session tokens (populated once by fetch_mcsp_tokens)
+MCSP_AUTHTOKEN=""
+MCSP_COOKIE=""
+MCSP_CSRF=""
+
 # Counters
 REQUIRED_PROJECTS=0
 PROJECTS_BEFORE_CLEANUP=0
@@ -154,6 +159,61 @@ log_warning() {
 ################################################################################
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+################################################################################
+# Function: fetch_mcsp_tokens
+# Description: Exchange the INSTANCE_API_KEY for session tokens required by
+#              enterprise APIs (authtoken, cookie, x-csrf-token).
+#              Results are cached in MCSP_AUTHTOKEN / MCSP_COOKIE / MCSP_CSRF.
+#              GET <url>/enterprise/v1/user/token
+################################################################################
+fetch_mcsp_tokens() {
+    if [ -n "$MCSP_AUTHTOKEN" ]; then
+        return 0  # already fetched
+    fi
+
+    local token_url="${WMIO_TENANT_URL}/enterprise/v1/user/token"
+
+    log_info "Fetching MCSP session tokens from: ${token_url}" >&2
+
+    local response
+    response=$(curl -s -w "\n%{http_code}" -X GET \
+        -H "X-INSTANCE-API-KEY: ${INSTANCE_API_KEY}" \
+        -H "Content-Type: application/json" \
+        --max-time "$REQUEST_TIMEOUT" \
+        "$token_url")
+    local curl_exit=$?
+
+    local http_code
+    http_code=$(echo "$response" | tail -n1)
+    local body
+    body=$(echo "$response" | sed '$d')
+
+    log_info "DEBUG [fetch_mcsp_tokens] curl exit: ${curl_exit} | HTTP: ${http_code}" >&2
+    log_info "DEBUG [fetch_mcsp_tokens] body: ${body}" >&2
+
+    if [ $curl_exit -ne 0 ]; then
+        log_error "curl failed (exit ${curl_exit}) while fetching MCSP tokens"
+        exit 1
+    fi
+
+    if [ "$http_code" != "200" ]; then
+        log_error "Failed to fetch MCSP tokens - HTTP ${http_code}: ${body}"
+        exit 1
+    fi
+
+    MCSP_AUTHTOKEN=$(echo "$body" | jq -r '.output.authtoken // empty')
+    MCSP_COOKIE=$(echo "$body"    | jq -r '.output.cookie    // empty')
+    MCSP_CSRF=$(echo "$body"      | jq -r '.output.csrf      // empty')
+
+    if [ -z "$MCSP_AUTHTOKEN" ] || [ -z "$MCSP_COOKIE" ] || [ -z "$MCSP_CSRF" ]; then
+        log_error "MCSP token response missing one or more fields (authtoken/cookie/csrf)"
+        log_error "Response: ${body}"
+        exit 1
+    fi
+
+    log_success "MCSP session tokens fetched successfully" >&2
 }
 
 ################################################################################
@@ -304,28 +364,37 @@ transfer_project_ownership() {
     local url="$1"
     local project_id="$2"
     local project_name="$3"
-    local auth_header=$(set_auth_headers)
 
     log_info "Transferring ownership of project: $project_name (ID: $project_id) to user: $WMIO_USERNAME"
 
-    local payload=$(jq -n --arg user "$WMIO_USERNAME" \
+    # Ensure we have valid session tokens (fetched once, cached globally)
+    fetch_mcsp_tokens
+
+    local payload
+    payload=$(jq -n --arg user "$WMIO_USERNAME" \
         '{"keepPreviousOwnerAsCollaborator": false, "username": $user}')
 
-    local response=$(eval curl -s -w \"\\n%{http_code}\" -X PUT \
-        $auth_header \
-        -H \"Content-Type: application/json\" \
-        -d \'$payload\' \
-        --max-time \"$REQUEST_TIMEOUT\" \
-        \"${url}/enterprise/v1/projects/${project_id}/ownership\")
+    local response
+    response=$(curl -s -w "\n%{http_code}" -X PUT \
+        -H "Content-Type: application/json" \
+        -H "authtoken: ${MCSP_AUTHTOKEN}" \
+        -H "x-csrf-token: ${MCSP_CSRF}" \
+        -H "Cookie: ${MCSP_COOKIE}" \
+        -d "$payload" \
+        --max-time "$REQUEST_TIMEOUT" \
+        "${url}/enterprise/v1/projects/${project_id}/ownership")
 
-    local http_code=$(echo "$response" | tail -n1)
-    local body=$(echo "$response" | sed '$d')
+    local http_code
+    http_code=$(echo "$response" | tail -n1)
+    local body
+    body=$(echo "$response" | sed '$d')
 
     if [ "$http_code" = "200" ] || [ "$http_code" = "204" ]; then
         log_success "Ownership transferred successfully for project: $project_name"
         return 0
     else
-        local error_msg=$(echo "$body" | jq -r '.error.message // .message // "Unknown error"' 2>/dev/null)
+        local error_msg
+        error_msg=$(echo "$body" | jq -r '.error.message // .message // "Unknown error"' 2>/dev/null)
         log_error "Failed to transfer ownership for project: $project_name - HTTP $http_code - $error_msg"
         return 1
     fi
@@ -364,14 +433,10 @@ delete_project_permanent() {
         return 0
     fi
 
-    # MCSP: transfer ownership before deletion
+    # MCSP: transfer ownership before deletion (best-effort — proceed even if it fails)
     if [[ "${APP_ENV,,}" == *"mcsp"* ]]; then
         if ! transfer_project_ownership "$url" "$project_id" "$project_name"; then
-            log_error "Skipping deletion of project: $project_name due to ownership transfer failure"
-            PROJECTS_NOT_DELETED_LIST+=("$project_name")
-            PROJECTS_NOT_DELETED_REASONS+=("Ownership transfer failed")
-            ((PROJECTS_NOT_DELETED++))
-            return 1
+            log_warning "Ownership transfer failed for: $project_name — attempting deletion anyway"
         fi
     fi
 
