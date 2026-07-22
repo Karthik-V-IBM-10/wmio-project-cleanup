@@ -462,22 +462,30 @@ delete_project_permanent() {
 
     log_info "Deleting project: $project_name (ID: $project_id)"
 
-    local auth_header=$(set_auth_headers)
-    
     # Construct payload matching Java implementation
-    local payload=$(jq -n \
+    local payload
+    payload=$(jq -n \
         --arg name "$project_name" \
         '{force_delete: true, confirm_project_name: ("Delete " + $name)}')
-    
-    local response=$(eval curl -s -w \"\\n%{http_code}\" -X DELETE \
-        $auth_header \
-        -H \"Content-Type: application/json\" \
-        -d \'$payload\' \
-        --max-time \"$REQUEST_TIMEOUT\" \
-        \"${url}/apis/v1/rest/projects/${project_id}\")
-    
-    local http_code=$(echo "$response" | tail -n1)
-    local body=$(echo "$response" | sed '$d')
+
+    local -a curl_args=(-s -w "\n%{http_code}" -X DELETE
+        -H "Content-Type: application/json"
+        -d "$payload"
+        --max-time "$REQUEST_TIMEOUT")
+
+    if [[ "${APP_ENV,,}" == *"mcsp"* ]]; then
+        curl_args+=(-H "X-INSTANCE-API-KEY: ${INSTANCE_API_KEY}")
+    else
+        curl_args+=(-u "${WMIO_USERNAME}:${WMIO_PASSWORD}")
+    fi
+
+    local response
+    response=$(curl "${curl_args[@]}" "${url}/apis/v1/rest/projects/${project_id}")
+
+    local http_code
+    http_code=$(echo "$response" | tail -n1)
+    local body
+    body=$(echo "$response" | sed '$d')
     
     if [ "$http_code" = "200" ]; then
         log_success "Project deleted successfully: $project_name"
