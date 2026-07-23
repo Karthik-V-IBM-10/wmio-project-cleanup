@@ -5,7 +5,7 @@ This standalone shell script automates the cleanup of projects in webMethods.io 
 ## Features
 
 - ✅ **Dual Authentication Support**: Works with both CA3S (Basic Auth) and MCSP (API Key) environments
-- ✅ **Exception Lists**: Protects specific projects from deletion using JSON configuration files
+- ✅ **Exception Lists**: Protects specific projects from deletion using JSON configuration files ([Exception List](https://ibm-middleware.atlassian.net/wiki/spaces/RNDWCLOUD/pages/1809973332/IWHI+Integration+Project+Information+Team+wise)(case-sensitive))
 - ✅ **Prefix Filtering**: Excludes projects based on name prefixes (e.g., `Auto_`, `SIQA_`, `Test_`)
 - ✅ **Dry Run Mode**: Preview what would be deleted without actually deleting
 - ✅ **Detailed Logging**: Color-coded output with comprehensive status reporting
