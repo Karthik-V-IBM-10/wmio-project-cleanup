@@ -106,7 +106,7 @@ You can create custom exception lists by adding new JSON files to the `exception
 | Option | Long Form | Description | Required |
 |--------|-----------|-------------|----------|
 | `-u` | `--url` | webMethods.io tenant URL | Yes |
-| `-n` | `--username` | Username (CA3S only) | Yes (MCSP: For project ownership change before deletion) |
+| `-n` | `--username` | Username (CA3S only) | Yes (MCSP: For project ownership change before deletion, username and API Key should match for successful cleanup) |
 | `-p` | `--password` | Password (CA3S only) | CA3S only |
 | `-k` | `--api-key` | Instance API Key (MCSP only) | MCSP only |
 | `-a` | `--app-env` | Environment type (ca3s/mcsp) | Yes |
