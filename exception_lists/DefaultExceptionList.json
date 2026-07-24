@@ -138,6 +138,7 @@
     "Auto_NodejsConnector_Runtime",
     "Auto_Node_Packages_Workflows",
     "Auto_Nodejs_TriggerListeners",
-    "Auto_CSC_Listener"
+    "Auto_CSC_Listener",
+    "DevOps"
   ]
 }
